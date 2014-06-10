@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <style type="text/css">
+      html { height: 100% }
+      body { height: 100%; margin: 0; padding: 0 }
+      #map-canvas { height: 100% ;}
+    </style>
+    <script type="text/javascript"
+      src="https://maps.googleapis.com/maps/api/js?key=&sensor=TRUE&libraries=geometry">
+    </script>
+	<script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+    <script type="text/javascript">
+    if(!window.console){console=new Object(); console.log={};};
+var map, flag;
+var list2use='points6.json';
+var browserSupportFlag =  new Boolean();
+var track= new Boolean();
+track=false;
+var markers=new Object();
+var Lines=new Array();
+var myLatLng;
+var toBeLinked;
+var pins = new Object();
+pins['ENL']='green';
+pins['RES']='blue';
+pins['NEU']='orange';
+pins['ENLFALSE']='green';
+pins['RESFALSE']='blue';
+pins['NEUFALSE']='orange';
+pins['ENLTRUE']='black';
+pins['RESTRUE']='black';
+pins['NEUTRUE']='black';
+var buttonStatus = new Object();
+buttonStatus.in=1;
+buttonStatus.out=1;
+buttonStatus.clear=0;
+var lines = new Object();
+var tempPoints = new Object();
+tempPoints={InLat:'empty', InLng:'empty',OutLat:'empty',OutLng:'empty'};
+tempPoints.markerLat="";
+tempPoints.markerLng="";
+var currentMarker;
+var lineSymbol = {path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW};
+var Paths=new Array();
+var linkedStatus='show';
+var $infocontent=$('<div><div id="infoTitle"></div><a href="www.google.com" id="openportal" target="_blank">view portal</a>&nbsp; <a id="owned">Not Owned</a>&nbsp <a id="hacked">Not Hacked</a></br> <a id="key_plus">+ &nbsp;&nbsp; </a><a id="key_show"></a> Keys <a id="key_minus">&nbsp;&nbsp; -</a> </br><button class="linkout" id="linkoutid" lat="" lng="">Link Out</button><button class="linkin" id="linkinid" lat="" lng="">Link In</button><button class="linkclear">Clear</button></div>');
+function initialize() {
+	var mapOptions = {
+		center: new google.maps.LatLng(46.501887,-84.352251),
+        zoom: 10
+        };
+	myLatLng = new google.maps.LatLng(41.2984165, -72.9290959);
+    	map = new google.maps.Map(document.getElementById("map-canvas"),mapOptions);
+    	google.maps.event.addListener(map, 'idle', function() {window.setTimeout(function() {getMid();},2000)});
+	testGeo();
+	getJson();
+	shareLoop();
+	import_Lines();
+	infowindow = new google.maps.InfoWindow({
+		content: 'test'
+	});
+}
+function key_show(t,i){
+lat=t.getPosition().lat();
+lng=t.getPosition().lng();
+var v=localStorage.getItem(lat+''+lng+i);
+if(v===null){localStorage.setItem(lat+''+lng+i,"0"); v="0";}
+return v;
+
+}
+function import_Lines(){
+$.each(Paths, function(k,p){
+	p.setMap(null);
+});
+Lines=[];
+Paths=[];
+var tempCookie=getCookie('Lines');
+if(tempCookie==""){tempCookie='[]';}
+var tempLines = JSON.parse(tempCookie);
+setCookie('Lines','[]',365);
+
+$.each(tempLines, function(k,v){
+if(v.type=='polyline'){
+
+tempPoints.OutLat=v.latLngs[0].k;
+tempPoints.OutLng=v.latLngs[0].A;
+tempPoints.InLat=v.latLngs[1].k;
+tempPoints.InLng=v.latLngs[1].A;
+drawLine();
+}
+});
+tempPoints.InLat='empty';
+	tempPoints.InLng='empty';
+	tempPoints.OutLat='empty';
+	tempPoints.OutLng='empty';
+	buttonStatus.in=1;
+	buttonStatus.out=1;
+	buttonStatus.clear=0;
+	buttonVisibility();
+}
+
+
+function getMid(){
+	if(track){
+		navigator.geolocation.getCurrentPosition(function(position) {
+      			initialLocation = new google.maps.LatLng(position.coords.latitude,position.coords.longitude);
+      			map.setCenter(initialLocation);
+			flag.setPosition(initialLocation);
+    		});
+	}
+	window.setTimeout(function() {getMid();},2000)
+}
+function shareLoop(){
+	getShare();
+	window.setTimeout(function() {shareLoop();},10000)
+}
+function makeMark(lat, lon, title, url, status, n){
+	this.lat = lat;
+	this.lon=lon;
+	this.title=title;
+	this.url=url;
+	this.status=status;
+	this.new=n;
+	tempLL= new google.maps.LatLng(lat, lon);
+	this.m=new google.maps.Marker({
+     		position: tempLL,
+     		map: map,
+     		title:title+'   -   '+url,
+     		icon: 'http://labs.google.com/ridefinder/images/mm_20_'+getPinColor(status+n)+'.png'
+	});
+	this.m.url=url;
+	this.m.portalName=title;
+	
+	google.maps.event.addListener(this.m, 'dblclick', function() {window.open(url,'_blank');});
+	google.maps.event.addListener(this.m, 'click', function() {openInfo(this);});
+}
+function openInfo(t){
+	currentMarker=t;
+	$infocontent.find("#infoTitle").html(t.portalName);
+	$infocontent.find("#openportal").attr('href',t.url);
+	$infocontent.find("#key_show").text(key_show(t,'keys'));
+	k='hacked';
+	$infocontent.find("#"+k).text((key_show(t,k)=='0'?'Not ':'')+k);
+	k='owned';
+	$infocontent.find("#"+k).text((key_show(t,k)=='0'?'Not ':'')+k);
+	//$infocontent.find("#"+k).text((localStorage.getItem(tempPoints.markerLat+''+tempPoints.markerLng+''+k)=='0'?'Not ':'')+k);
+	$infocontent.find("#infoTitle").html(t.portalName);
+	infowindow.open(map,t);
+	infowindow.setContent($infocontent.html());
+	tempPoints.markerLat=t.getPosition().lat();
+	tempPoints.markerLng=t.getPosition().lng();	
+	buttonVisibility();
+}
+function buttonVisibility(){
+	if(buttonStatus.in==1){$(".linkin").show();}else{$(".linkin").hide();}
+	if(buttonStatus.out==1){$(".linkout").show();}else{$(".linkout").hide();}
+	if(buttonStatus.clear==1){$(".linkclear").show();}else{$(".linkclear").hide();}
+}
+function getJson(){
+	$.ajax({
+		url: list2use,
+                dataType: "json",
+
+		success: function( data ) {
+			$.each(data.data, function(key, value){
+//Name	Lat	Lon	status	URL
+				markers[key]= new makeMark(value["Lat"],value["Lon"],value["Name"],value["URL"],value["status"],value["new"]);	
+			});
+                }
+		,error: function(xhr){}
+	})
+}
+function getShare(){
+	var share = new Object;
+     	$.ajax({
+		url: 'share.php',
+        	dataType: "json",
+		success: function( data ) {
+			for (var i = 0; i < share.length; i++) {share[i].setMap(null);}
+	     		$.each(data, function(key, value){
+                		tempLL= new google.maps.LatLng(value["lat"], value["lon"]);
+				share[key]=new google.maps.Marker({
+                     			position: tempLL,
+                     			map: map,
+                     			title:value["name"],
+                     			icon: 'smiley_happy.png'
+                 		});
+				var infowindow = new google.maps.InfoWindow({content: value["name"]});
+				google.maps.event.addListener(share[key], 'click', function() {infowindow.open(map,share[key])});
+             		});
+         	}
+	});
+}
+function getPinColor(name){
+	if(typeof pins[name]!=='undefined'){
+		return pins[name];
+	}
+	else{
+		return 'red';
+	}
+}
+function testGeo(){
+	var initialLocation;
+	if(navigator.geolocation) {
+    		browserSupportFlag = true;
+    		navigator.geolocation.getCurrentPosition(function(position) {
+      			initialLocation = new google.maps.LatLng(position.coords.latitude,position.coords.longitude);
+      			map.setCenter(initialLocation);
+			flag=new google.maps.Marker({position: initialLocation,map: map,title:'you are here!'});
+    		});
+	}
+ 	else {
+    		browserSupportFlag = false;
+		$("#location").hide();
+  	}
+}
+function follow(){
+	if ($("#location").text()=='Follow'){
+		$("#location").text('Stop');
+		track=true;
+	}
+	else{
+		$("#location").text('Follow');
+		track=false;
+	}
+}
+function setCookie(cname,cvalue,exdays){
+	var d = new Date();
+	d.setTime(d.getTime()+(exdays*24*60*60*1000));
+	var expires = "expires="+d.toGMTString();
+	document.cookie = cname + "=" + cvalue + "; " + expires;
+}
+function getCookie(cname){
+	var name = cname + "=";
+	var ca = document.cookie.split(';');
+	for(var i=0; i<ca.length; i++){
+  		var c = ca[i].trim();
+  		if (c.indexOf(name)==0) {return c.substring(name.length,c.length);}
+	  }
+	return "";
+}
+
+Array.prototype.clean = function() {
+	for (var i = 0; i < this.length; i++) {
+    		if (this[i].getMap() == null) {       
+      			this.splice(i, 1);
+      			i--;
+    		}
+  	}
+  	return this;
+};
+
+function drawLine(){
+	var Coordinates = [
+    		new google.maps.LatLng(tempPoints.OutLat, tempPoints.OutLng),
+    		new google.maps.LatLng(tempPoints.InLat, tempPoints.InLng)
+  	];
+  	var k1=tempPoints.OutLat;
+	var A1=tempPoints.OutLng;
+	var k2=tempPoints.InLat;
+	var A2=tempPoints.InLng;
+  	var Path=new google.maps.Polyline({
+    		path: Coordinates,
+    		geodesic: true,
+    		strokeColor: '#FF0000',
+    		strokeOpacity: 1.0,
+    		strokeWeight: 2,
+    		icons: [{icon: lineSymbol, offset: '95%'},{icon: lineSymbol, offset: '85%'},{icon: lineSymbol, offset: '5%'},{icon: lineSymbol, offset: '15%'}]
+  	});
+  	var rv = checkIntersect(Path);
+  	if(rv==0){
+  		
+  		Path.setMap(map);
+  		Paths.push(Path);
+  		var t=Paths.length-1;
+  		google.maps.event.addListener(Paths[t], 'click', function(event){removeLine(Paths[t])});
+  		var item = new Object();
+  		item.type='polyline';
+  		item.latLngs=[{"k":k1,"A":A1},{"k":k2,"A":A2}];
+  		item.color='#FF0000';
+  		Lines.push(item);
+		setCookie('Lines',JSON.stringify(Lines).replace(/\\"/g,'"'),365); //'
+  	} 
+  	else if(rv==9999){clearButton(); alert('maximum outbound links. \n Try making an inbound link.') }
+  	else{alert('Link not made it crosses '+rv+' other links');}
+}
+function removeLine(p){
+	var k1=p.getPath().getAt(0).lat();
+	var A1=p.getPath().getAt(0).lng();
+	var k2=p.getPath().getAt(1).lat();
+	var A2=p.getPath().getAt(1).lng();
+	var i;
+	if (confirm("Delete this link?")){
+  		var item = new Object();
+  		item.type='polyline';
+  		item.latLngs=[{"k":k1,"A":A1},{"k":k2,"A":A2}];
+  		item.color='#FF0000';
+		$.each(Lines,function(k,v){
+		if(JSON.stringify(item)==JSON.stringify(v)){
+		i=k}
+		});
+		if(i>=0){Lines.splice(i,1);
+		setCookie('Lines',JSON.stringify(Lines).replace(/\\"/g,'"'),365);  //'
+		import_Lines();
+		};
+	}
+}
+function clearButton(){
+	tempPoints.InLat='empty';
+	tempPoints.InLng='empty';
+	tempPoints.OutLat='empty';
+	tempPoints.OutLng='empty';
+	buttonStatus.in=1;
+	buttonStatus.out=1;
+	buttonStatus.clear=0;
+	buttonVisibility();
+	openInfo(currentMarker);
+}
+function portalLinked(p,v){
+
+}
+function checkIntersect(p){
+	lat1=p.getPath().getAt(0).lat();
+	lng1=p.getPath().getAt(0).lng();
+	lat2=p.getPath().getAt(1).lat();
+	lng2=p.getPath().getAt(1).lng();
+	var test=0;
+	var outs=0
+	$.each(Paths, function(k,v){
+		alat1=v.getPath().getAt(0).lat();
+		alng1=v.getPath().getAt(0).lng();
+		alat2=v.getPath().getAt(1).lat();
+		alng2=v.getPath().getAt(1).lng();
+		if (lat1.toString()==alat1.toString() && lng1.toString()==alng1.toString()){outs=outs+1;}
+		if (outs>=8){test=9999; }
+		else{
+			if(
+				(lat1.toString()==alat1.toString() &&lng1.toString()==alng1.toString())
+				||
+				(lat1.toString()==alat2.toString() &&lng1.toString()==alng2.toString())
+				||
+				(lat2.toString()==alat1.toString() &&lng2.toString()==alng1.toString())
+				||
+				(lat2.toString()==alat2.toString() &&lng2.toString()==alng2.toString())
+			)
+			{}
+			else{
+				test=test+lineIntersect(lat1, lng1, lat2, lng2, alat1,alng1,alat2,alng2);
+			}
+		}
+	});
+	return test;
+}
+function lineIntersect(x1,y1,x2,y2, x3,y3,x4,y4) {
+    	var x=((x1*y2-y1*x2)*(x3-x4)-(x1-x2)*(x3*y4-y3*x4))/((x1-x2)*(y3-y4)-(y1-y2)*(x3-x4));
+    	var y=((x1*y2-y1*x2)*(y3-y4)-(y1-y2)*(x3*y4-y3*x4))/((x1-x2)*(y3-y4)-(y1-y2)*(x3-x4));
+    	if (isNaN(x)||isNaN(y)) {
+        	return false;
+    	} 
+    	else {
+        	if (x1>=x2) {
+            		if (!(x2<=x&&x<=x1)) {return false;}
+        	} 
+        	else {
+            		if (!(x1<=x&&x<=x2)) {return false;}
+        	}
+        	if (y1>=y2) {
+            		if (!(y2<=y&&y<=y1)) {return false;}
+        	}
+        	else {
+            		if (!(y1<=y&&y<=y2)) {return false;}
+        	}
+        	if (x3>=x4) {
+            		if (!(x4<=x&&x<=x3)) {return false;}
+        	}
+        	else {
+            		if (!(x3<=x&&x<=x4)) {return false;}
+        	}
+        	if (y3>=y4) {
+            		if (!(y4<=y&&y<=y3)) {return false;}
+        	} 
+        	else {
+            		if (!(y3<=y&&y<=y4)) {return false;}
+        	}
+    	}
+    	return true;
+}
+function workIn(){
+	lat=tempPoints.markerLat;
+	lng=tempPoints.markerLng;
+	if(tempPoints.OutLat.toString()==lat.toString() && tempPoints.OutLng.toString()==lng.toString()){
+		alert("No linking Portals to themselves please.");
+	}
+	else{
+		tempPoints.InLat=lat;
+		tempPoints.InLng=lng;
+		if(tempPoints.OutLat=='empty'){
+			buttonStatus.in=0;
+			buttonStatus.out=1;
+			buttonStatus.clear=1;
+			buttonVisibility();
+		}
+		else{drawLine();clearButton();}
+	}
+}
+function workOut(){
+	lat=tempPoints.markerLat;
+	lng=tempPoints.markerLng;
+	if(tempPoints.InLat.toString()==lat.toString() && tempPoints.InLng.toString()==lng.toString()){
+		alert("No linking Portals to themselves please.");
+	}
+	else{
+		tempPoints.OutLat=lat;
+		tempPoints.OutLng=lng;
+		if(tempPoints.InLat=='empty'){
+			buttonStatus.in=1;
+			buttonStatus.out=0;
+			buttonStatus.clear=1;
+			buttonVisibility();
+		}
+		else{drawLine();clearButton();}
+	}
+}
+function export_Lines(){
+$("#impexp").show();
+$("#imexText").val(getCookie('Lines'));
+plan();
+}
+function newShow(){
+if($("#showNew").text()=='Show All'){
+$("#showNew").text('Show New');
+$.each(markers, function(mk,mv){markers[mk].m.setMap(map);});
+}
+else{
+$("#showNew").text('Show All');
+$.each(markers, function(mk,mv){if(markers[mk].new=='TRUE'){markers[mk].m.setMap(map);}else {markers[mk].m.setMap(null);}});
+}
+linkedStatus='show';
+$("#showHide").text('Hide Portals');
+}
+$( document ).ready(function() {
+	google.maps.event.addDomListener(window, 'load', initialize);
+	$("body").on('click','#location',function(){follow()});
+	$("body").on('click','#share',function(){share()});
+	$("body").on('blur','#name',function(){setCookie('name',this.value,365);});
+	$("body").on('click','#linkoutid',function(){workOut();});
+	$("body").on('click','#linkinid',function(){workIn();});
+	$("body").on('click','.linkclear',function(){clearButton();});
+	$("body").on('click','#imex',function(){export_Lines();});
+	$("body").on('click','#plan_button',function(){$('#planbox').show();$('#planText').val(plan());});
+	$("body").on('click','#impexp_close',function(){$('#impexp').hide();});
+	$("body").on('click','#impexp_import',function(){setCookie('Lines',$("#imexText").val(),365);import_Lines();});
+	$("body").on('click','#impexp_erase',function(){$("#imexText").val("[]");setCookie('Lines','[]',365);import_Lines();});
+	$("body").on('click','#plan_close',function(){$('#planbox').hide();});
+	$("body").on('click','#showHide',function(){linked_Portals();});
+	$("body").on('click','#showNew',function(){newShow();});
+	$("body").on('click','#key_plus',function(){keys(true);});
+	$("body").on('click','#key_minus',function(){keys(false);});
+	$("body").on('click','#hacked',function(){hacked('hacked');});
+	$("body").on('click','#owned',function(){hacked('owned');});
+	$("body").on('click','#options_button',function(){$("#menu_div").toggle()});
+	$("body").on('click','.button',function(){button_press($(this))});
+	
+	var tempname =getCookie('name') ;
+	if (tempname.length>1){$("#name").val(tempname);}
+	$('.linkclear').hide();
+});
+function keys(b){
+var lat = currentMarker.getPosition().lat();
+var lng = currentMarker.getPosition().lng();
+var current_count=parseInt(localStorage.getItem(lat+''+lng+'keys'));
+if(b){current_count++;localStorage.setItem(lat+''+lng+'keys',current_count)}
+else{current_count--;localStorage.setItem(lat+''+lng+'keys',current_count)}
+$("#key_show").text(current_count);
+}
+function hacked(k){
+var lat = currentMarker.getPosition().lat();
+var lng = currentMarker.getPosition().lng();
+if(confirm('Are you sure you want to change this?')){
+localStorage.setItem(lat+''+lng+''+k,Math.abs(parseInt(key_show(currentMarker,k))-1).toString())}
+$("#"+k).text((localStorage.getItem(lat+''+lng+''+k)=='0'?'Not ':'')+k);
+}
+function share(){
+	$("#share").hide()
+	navigator.geolocation.getCurrentPosition(function(position) {
+      		currentLocation = new google.maps.LatLng(position.coords.latitude,position.coords.longitude);
+		$.post( "up.php", { name:$("#name").val() , lat:currentLocation.lat() , lon:currentLocation.lng() } );
+    	});
+	window.setTimeout(function() {$("#share").show()},2000)
+}
+function linked_Portals(){
+$("#showNew").text('Show New');
+if(linkedStatus=='show'){linkedStatus='hide'; $("#showHide").text('Show Portals');}else{linkedStatus='show';$("#showHide").text('Hide Portals');}
+$.each(markers, function(mk,mv){markers[mk].linked=false;});
+$.each(Paths, function(k,p){
+	var k1=p.getPath().getAt(0).lat();
+	var A1=p.getPath().getAt(0).lng();
+	var k2=p.getPath().getAt(1).lat();
+	var A2=p.getPath().getAt(1).lng();
+	$.each(markers, function(mk,mv){
+		var plan_temp_lat =mv.m.getPosition().lat() , plan_temp_lng=mv.m.getPosition().lng();
+		if ((plan_temp_lat==k1 && plan_temp_lng==A1)||(plan_temp_lat==k2 && plan_temp_lng==A2)){markers[mk].linked=true;}
+	});
+});
+if (linkedStatus=='show'){
+$.each(markers, function(mk,mv){markers[mk].m.setMap(map);});
+}
+else{
+$.each(markers, function(mk,mv){if(markers[mk].linked==true){markers[mk].m.setMap(map);}else {markers[mk].m.setMap(null);}});
+}
+}
+function plan(){
+var plan_Portals = new Object();
+
+$.each(Paths, function(k,p){
+//console.log(k);
+//console.log(p);
+	var k1=p.getPath().getAt(0).lat();
+	var A1=p.getPath().getAt(0).lng();
+	var k2=p.getPath().getAt(1).lat();
+	var A2=p.getPath().getAt(1).lng();
+	$.each(markers, function(mk,mv){
+	var plan_temp_lat =mv.m.getPosition().lat() , plan_temp_lng=mv.m.getPosition().lng();
+	if (plan_temp_lat==k1 && plan_temp_lng==A1){
+		if(typeof plan_Portals[k1] !== 'undefined'){
+			if (typeof plan_Portals[k1][A1] !=='undefined'){
+			if(typeof plan_Portals[k1][A1].out !=='undefined'){}else{plan_Portals[k1][A1].out=0}
+			if(typeof plan_Portals[k1][A1].portal_out !=='undefined'){}else{plan_Portals[k1][A1].portal_out = new Object()}
+			
+				plan_Portals[k1][A1].out=plan_Portals[k1][A1].out+1; 
+				plan_Portals[k1][A1].portal_out[plan_Portals[k1][A1].out-1]=new Object();
+				plan_Portals[k1][A1].portal_out[plan_Portals[k1][A1].out-1].lat=k2;
+				plan_Portals[k1][A1].portal_out[plan_Portals[k1][A1].out-1].lng=A2;
+			}
+			else{
+			//console.log('step4');
+				plan_Portals[k1][A1] = new Object();
+				plan_Portals[k1][A1].name=mv.title+' ('+k1+' : '+A1+')';
+				plan_Portals[k1][A1].url=mv.url;
+				plan_Portals[k1][A1].out = 1;
+				plan_Portals[k1][A1].in = 0;
+				plan_Portals[k1][A1].portal_out=new Object();
+				plan_Portals[k1][A1].portal_out[0]=new Object();
+				plan_Portals[k1][A1].portal_out[plan_Portals[k1][A1].out-1].lat=k2;
+				plan_Portals[k1][A1].portal_out[plan_Portals[k1][A1].out-1].lng=A2;
+				
+			}
+		}
+		else {
+			plan_Portals[k1] = new Object();
+			if (typeof plan_Portals[k1][A1] !=='undefined'){
+				plan_Portals[k1][A1].out++;
+				plan_Portals[k1][A1].portal_out[plan_Portals[k1][A1].out-1]=new Object();
+				plan_Portals[k1][A1].portal_out[plan_Portals[k1][A1].out-1].lat=k2;
+				plan_Portals[k1][A1].portal_out[plan_Portals[k1][A1].out-1].lng=A2;
+			}
+			else{
+			//console.log('step4');
+				plan_Portals[k1][A1] = new Object();
+				plan_Portals[k1][A1].name=mv.title+' ('+k1+' : '+A1+')';
+				plan_Portals[k1][A1].url=mv.url;
+				plan_Portals[k1][A1].out = 1;
+				plan_Portals[k1][A1].in = 0;
+				plan_Portals[k1][A1].portal_out=new Object();
+				plan_Portals[k1][A1].portal_out[0]=new Object();
+				plan_Portals[k1][A1].portal_out[0].lat=k2;
+				plan_Portals[k1][A1].portal_out[0].lng=A2;
+				
+			}
+		}
+				
+	};
+	if (plan_temp_lat==k2 && plan_temp_lng==A2){
+		if(typeof plan_Portals[k2] !== 'undefined'){
+		
+			//console.log('step 1');
+			if (typeof plan_Portals[k2][A2] !=='undefined'){plan_Portals[k2][A2].in++;}
+			else{
+				plan_Portals[k2][A2] = new Object();
+				plan_Portals[k2][A2].name=mv.title+' ('+k2+' : '+A2+')';
+				plan_Portals[k2][A2].url=mv.url;
+				plan_Portals[k2][A2].in = 1;
+				plan_Portals[k2][A2].out = 0;
+				
+			}
+		}
+		else {
+		//console.log('step2');
+			plan_Portals[k2] = new Object();
+			if (typeof plan_Portals[k2][A2] !=='undefined'){plan_Portals[k2][A2].in++;}
+			else{
+				plan_Portals[k2][A2] = new Object();
+				plan_Portals[k2][A2].name=mv.title+' ('+k2+' : '+A2+')';
+				plan_Portals[k2][A2].url=mv.url;
+				plan_Portals[k2][A2].in = 1;
+				plan_Portals[k2][A2].out = 0;
+				
+			}
+		}
+				
+	};
+	});
+});
+var outstring='';
+
+	$.each(plan_Portals, function(k,v){
+		$.each(plan_Portals[k], function(k1, v1){
+		outstring+=v1.name+'\n\t'+v1.url+'\n\t\t'+'Inbound Portals: '+v1.in+'\n\t\t'+'Outbound Portals: '+v1.out;
+		if(typeof plan_Portals[k][k1].portal_out!=='undefined'){
+			$.each(plan_Portals[k][k1].portal_out, function(k2,v2){
+				plan_Portals[k][k1].portal_out[k2].name=plan_Portals[plan_Portals[k][k1].portal_out[k2].lat][plan_Portals[k][k1].portal_out[k2].lng].name;
+				plan_Portals[k][k1].portal_out[k2].url=plan_Portals[plan_Portals[k][k1].portal_out[k2].lat][plan_Portals[k][k1].portal_out[k2].lng].url;
+				outstring+='\n\t\t\t'+plan_Portals[k][k1].portal_out[k2].name+'\n\t\t\t\t'+plan_Portals[k][k1].portal_out[k2].url;
+			});}
+			outstring+='\n\n';
+		});
+	});
+//console.log(plan_Portals);
+//console.log(JSON.stringify(plan_Portals, null, '\t'));
+//return JSON.stringify(plan_Portals, null, '\t');
+return outstring;
+}
+function button_press(t){
+t.addClass('blue') ;
+window.setTimeout(function() {t.removeClass('blue')},500)
+}
+</script>
+<style>
+.button{
+position: absolute; 
+z-index: 99;
+text-align: center;
+vertical-align: middle;
+background-color:white;
+font-family: Roboto, Arial, sans-serif; 
+font-size: 11px; 
+padding: 1px 6px; 
+
+border-bottom-left-radius: 2px; 
+border-top-left-radius: 2px; 
+border: 1px solid rgba(0, 0, 0, 0.14902); 
+min-width: 24px; 
+}
+#location{
+top: 5px; 
+right: 100px;
+cursor:pointer; 
+border:1px solid black;
+}
+#name{
+position: relative; 
+width:90px;
+
+}
+#share{
+top: 5px; 
+right: 150px;
+cursor:pointer; 
+border:1px solid black;
+}
+#imex{
+position: relative; 
+cursor:pointer; 
+border:1px solid black;
+}
+#impexp{
+display:none;
+width:50%;
+height:50%;
+top:25%;
+left:25%;
+position: absolute; 
+z-index: 99;
+background-color:white;
+}
+#imexText{
+height:80%;
+width:100%;
+}
+#plan_button{
+position: relative; 
+cursor:pointer; 
+border:1px solid black;
+margin:3px;
+}
+#showHide{
+position: relative; 
+cursor:pointer; 
+border:1px solid black;
+}
+#showNew{
+position: relative; 
+cursor:pointer; 
+border:1px solid black;
+}
+#planbox{
+display:none;
+width:50%;
+height:50%;
+top:25%;
+left:25%;
+position: absolute; 
+z-index: 99;
+background-color:white;
+}
+#planText{
+height:80%;
+width:100%;
+}
+#key_plus, #key_minus{
+font-weight:900;
+font-size:1.5em;
+}
+#menu_div{
+display:none;
+text-align: left;
+background-color:white;
+border: 1px solid black;
+width:200px;
+height:100px;
+top:25px;
+right:100px;
+position: absolute; 
+z-index: 99;
+
+border-bottom-left-radius: 2px; 
+border-top-left-radius: 2px; 
+border: 1px solid rgba(0, 0, 0, 0.14902); 
+min-width: 24px; 
+}
+#options_button{
+top: 5px; 
+right: 210px;
+cursor:pointer; 
+border:1px solid black;
+}
+.blue{
+background-color:#ccccff !important;
+}
+.button:hover{
+background-color:#eaeaea;
+}
+</style>
+  </head>
+  <body>
+
+    <div id="map-canvas"></div>
+
+<div class='button' id='location'>Follow</div>
+<div class='button' id='share'>Share</div>
+<div id='options_button' class='button'>Options</div>
+    <div id='menu_div'>
+<input type='text' class='button' id='name' value='Your Name?'/> 
+<span id='imex' class='button gm-style-mtc'>Import/Export</span></br>
+<span id='plan_button' class='button gm-style-mtc'>Show Plan</span></br>
+<span id='showHide' class='button'>Hide Portals</span></br>
+<span id='showNew' class='button'>Show New</span>
+</div>
+<div id='impexp'><span id='export_space'><button id='impexp_close'>Close</button><button id='impexp_import'>Import</button> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<button id='impexp_erase'>Erase all links</button></span></br><span id='textarea_space'><textarea id='imexText'></textarea></span></div>
+
+<div id='planbox'><span id='plan_space'><button id='plan_close'>Close</button></span></br><span id='textarea_plan'><textarea id='planText'></textarea></span></div>
+  </body>
+</html>
